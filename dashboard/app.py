@@ -49,10 +49,10 @@ DATABASE_PATH = os.path.join(
 
 PAPER_BALANCE = 200.0
 
-OVERALL_PROGRESS = 90
+OVERALL_PROGRESS = 100
 V1_PROGRESS = 100
 V2_PROGRESS = 100
-V3_PROGRESS = 90
+V3_PROGRESS = 100
 
 
 # ============================================================
@@ -521,7 +521,7 @@ st.sidebar.divider()
 
 if st.sidebar.button(
     "🔄 Refresh Analysis",
-    use_container_width=True
+    width="stretch"
 ):
 
     st.rerun()
@@ -1307,7 +1307,7 @@ if not trade_history.empty:
 
     st.dataframe(
         trade_history,
-        use_container_width=True,
+        width="stretch",
         hide_index=True
     )
 
