@@ -1,6 +1,6 @@
-# ==========================================
-# CRYPTOAI PRO - V2 DASHBOARD
-# ==========================================
+# ============================================================
+# CRYPTOAI PRO - V3 DASHBOARD
+# ============================================================
 
 import os
 import sys
@@ -11,12 +11,9 @@ import pandas as pd
 import streamlit as st
 
 
-# ==========================================
-# PROJECT PATH FIX
-# ==========================================
-# dashboard/app.py is inside the dashboard folder.
-# This adds the main CryptoAI_Bot folder to Python's path
-# so imports such as database.database work correctly.
+# ============================================================
+# PROJECT PATH
+# ============================================================
 
 PROJECT_ROOT = os.path.dirname(
     os.path.dirname(
@@ -28,90 +25,64 @@ if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
 
-# ==========================================
+# ============================================================
 # PROJECT IMPORTS
-# ==========================================
+# ============================================================
 
-from database.database import (
-    init_db,
-    get_position
-)
+from database.database import init_db, get_position
+from market.market_data import fetch_market_data
+from indicators.indicators import calculate_indicators
+from strategy.news_ai import analyze_news
+from strategy.decision_engine import make_decision
+from ai.ml_predictor import predict_probability
+from risk.risk_manager import calculate_trade
 
 
-# ==========================================
-# DATABASE PATH
-# ==========================================
+# ============================================================
+# SETTINGS
+# ============================================================
 
 DATABASE_PATH = os.path.join(
     PROJECT_ROOT,
     "cryptoai.db"
 )
 
+PAPER_BALANCE = 200.0
 
-# ==========================================
+OVERALL_PROGRESS = 90
+V1_PROGRESS = 100
+V2_PROGRESS = 100
+V3_PROGRESS = 90
+
+
+# ============================================================
 # PAGE CONFIGURATION
-# ==========================================
+# ============================================================
 
 st.set_page_config(
-    page_title="CryptoAI Pro Dashboard",
+    page_title="CryptoAI Pro V3",
     page_icon="📊",
     layout="wide"
 )
 
 
-# ==========================================
-# CUSTOM CSS
-# ==========================================
-
-st.markdown(
-    """
-    <style>
-
-    .main-title {
-        font-size: 36px;
-        font-weight: bold;
-        margin-bottom: 0px;
-    }
-
-    .subtitle {
-        font-size: 16px;
-        color: #777777;
-        margin-bottom: 25px;
-    }
-
-    .status-box {
-        padding: 15px;
-        border-radius: 10px;
-        border: 1px solid #dddddd;
-        margin-bottom: 15px;
-    }
-
-    </style>
-    """,
-    unsafe_allow_html=True
-)
-
-
-# ==========================================
-# DATABASE INITIALIZATION
-# ==========================================
+# ============================================================
+# DATABASE
+# ============================================================
 
 try:
     init_db()
-except Exception as e:
-    st.error(
-        f"Database initialization failed: {e}"
+except Exception as error:
+    st.warning(
+        f"Database initialization warning: {error}"
     )
 
 
-# ==========================================
-# HELPER FUNCTIONS
-# ==========================================
+# ============================================================
+# DATABASE HELPERS
+# ============================================================
 
 def get_database_connection():
-    """
-    Create a connection to the CryptoAI Pro SQLite database.
-    """
 
     return sqlite3.connect(
         DATABASE_PATH
@@ -119,11 +90,11 @@ def get_database_connection():
 
 
 def get_trade_history():
-    """
-    Read all stored trades from the trades table.
-    """
+
+    connection = None
 
     try:
+
         connection = get_database_connection()
 
         query = """
@@ -139,217 +110,566 @@ def get_trade_history():
         ORDER BY time DESC
         """
 
-        dataframe = pd.read_sql_query(
+        return pd.read_sql_query(
             query,
             connection
         )
 
-        connection.close()
-
-        return dataframe
-
-    except Exception as e:
+    except Exception as error:
 
         st.warning(
-            f"Could not read trade history: {e}"
+            f"Could not read trade history: {error}"
         )
 
         return pd.DataFrame()
 
+    finally:
 
-def get_trade_statistics(dataframe):
-    """
-    Calculate basic trading statistics.
-    """
-
-    if dataframe.empty:
-
-        return {
-            "total_trades": 0,
-            "buy_trades": 0,
-            "sell_trades": 0,
-            "total_profit": 0.0,
-            "winning_trades": 0,
-            "losing_trades": 0
-        }
-
-    buy_trades = len(
-        dataframe[
-            dataframe["action"] == "BUY"
-        ]
-    )
-
-    sell_trades = len(
-        dataframe[
-            dataframe["action"] == "SELL"
-        ]
-    )
-
-    sell_dataframe = dataframe[
-        dataframe["action"] == "SELL"
-    ]
-
-    if sell_dataframe.empty:
-
-        total_profit = 0.0
-
-        winning_trades = 0
-
-        losing_trades = 0
-
-    else:
-
-        total_profit = float(
-            sell_dataframe["profit"]
-            .fillna(0)
-            .sum()
-        )
-
-        winning_trades = len(
-            sell_dataframe[
-                sell_dataframe["profit"] > 0
-            ]
-        )
-
-        losing_trades = len(
-            sell_dataframe[
-                sell_dataframe["profit"] < 0
-            ]
-        )
-
-    return {
-        "total_trades": len(dataframe),
-        "buy_trades": buy_trades,
-        "sell_trades": sell_trades,
-        "total_profit": total_profit,
-        "winning_trades": winning_trades,
-        "losing_trades": losing_trades
-    }
+        if connection is not None:
+            connection.close()
 
 
 def get_current_position():
-    """
-    Get the currently open paper-trading position.
-    """
 
     try:
 
-        position = get_position()
+        return get_position()
 
-        return position
-
-    except Exception as e:
+    except Exception as error:
 
         st.warning(
-            f"Could not read open position: {e}"
+            f"Could not read position: {error}"
         )
 
         return None
 
 
-# ==========================================
+def get_statistics(dataframe):
+
+    if dataframe.empty:
+
+        return {
+            "total": 0,
+            "buys": 0,
+            "sells": 0,
+            "profit": 0.0,
+            "wins": 0,
+            "losses": 0,
+            "win_rate": 0.0
+        }
+
+    buys = len(
+        dataframe[
+            dataframe["action"] == "BUY"
+        ]
+    )
+
+    sells_df = dataframe[
+        dataframe["action"] == "SELL"
+    ].copy()
+
+    sells = len(sells_df)
+
+    if sells_df.empty:
+
+        profit = 0.0
+        wins = 0
+        losses = 0
+        win_rate = 0.0
+
+    else:
+
+        sells_df["profit"] = pd.to_numeric(
+            sells_df["profit"],
+            errors="coerce"
+        ).fillna(0)
+
+        profit = float(
+            sells_df["profit"].sum()
+        )
+
+        wins = int(
+            (
+                sells_df["profit"] > 0
+            ).sum()
+        )
+
+        losses = int(
+            (
+                sells_df["profit"] < 0
+            ).sum()
+        )
+
+        completed = wins + losses
+
+        win_rate = (
+            wins / completed * 100
+            if completed > 0
+            else 0.0
+        )
+
+    return {
+        "total": len(dataframe),
+        "buys": buys,
+        "sells": sells,
+        "profit": profit,
+        "wins": wins,
+        "losses": losses,
+        "win_rate": win_rate
+    }
+
+
+# ============================================================
+# MARKET SCORE
+# ============================================================
+
+def calculate_market_score(change):
+
+    if change >= 15:
+        return 40
+
+    if change >= 10:
+        return 35
+
+    if change >= 7:
+        return 30
+
+    if change >= 5:
+        return 25
+
+    if change >= 2:
+        return 15
+
+    if change > 0:
+        return 10
+
+    return 0
+
+
+# ============================================================
+# LIVE ANALYSIS
+# ============================================================
+
+def run_live_analysis():
+
+    result = {
+        "success": False
+    }
+
+    try:
+
+        market_data = fetch_market_data(
+            min_change_percent=0.0,
+            min_volume=10000.0,
+            interval="1m",
+            limit=200,
+            ml_mode=True
+        )
+
+        if not market_data:
+
+            result["error"] = (
+                "No ML-supported market found."
+            )
+
+            return result
+
+        best = market_data["market"]
+        candles = market_data["candles"]
+
+        coin = best["market"]
+        price = float(
+            best["last_price"]
+        )
+
+        change = float(
+            best["change_24_hour"]
+        )
+
+        volume = float(
+            best["volume"]
+        )
+
+        indicators = calculate_indicators(
+            candles
+        )
+
+        if (
+            indicators is None
+            or indicators.empty
+        ):
+
+            result["error"] = (
+                "Indicator calculation failed."
+            )
+
+            return result
+
+        latest = indicators.iloc[-1]
+
+        market_score = (
+            calculate_market_score(
+                change
+            )
+        )
+
+        # ----------------------------------------------------
+        # NEWS
+        # ----------------------------------------------------
+
+        try:
+
+            news = analyze_news(
+                "crypto adoption growth partnership"
+            )
+
+            news_score = news.get(
+                "score",
+                0
+            )
+
+        except Exception:
+
+            news_score = 0
+
+        # ----------------------------------------------------
+        # ML
+        # ----------------------------------------------------
+
+        ml_probability = None
+        ml_confidence = None
+        ai_signal = "UNAVAILABLE"
+
+        try:
+
+            ml_result = predict_probability(
+                indicators
+            )
+
+            ml_probability = float(
+                ml_result["probability"]
+            )
+
+            ml_confidence = float(
+                ml_result[
+                    "confidence_percent"
+                ]
+            )
+
+            if ml_probability >= 0.65:
+
+                ai_signal = (
+                    "STRONG BULLISH"
+                )
+
+            elif ml_probability >= 0.55:
+
+                ai_signal = (
+                    "MODERATE BULLISH"
+                )
+
+            elif ml_probability >= 0.40:
+
+                ai_signal = "NEUTRAL"
+
+            else:
+
+                ai_signal = "BEARISH"
+
+        except Exception:
+
+            pass
+
+        # ----------------------------------------------------
+        # DECISION
+        # ----------------------------------------------------
+
+        decision = make_decision(
+            market_score,
+            news_score,
+            True,
+            indicators,
+            ml_probability=ml_probability
+        )
+
+        # ----------------------------------------------------
+        # RISK
+        # ----------------------------------------------------
+
+        risk = calculate_trade(
+            balance=PAPER_BALANCE,
+            price=price
+        )
+
+        # ----------------------------------------------------
+        # RESULT
+        # ----------------------------------------------------
+
+        result.update({
+
+            "success":
+                True,
+
+            "coin":
+                coin,
+
+            "price":
+                price,
+
+            "change":
+                change,
+
+            "volume":
+                volume,
+
+            "candles":
+                len(candles),
+
+            "rsi":
+                float(latest["RSI"]),
+
+            "ema20":
+                float(latest["EMA20"]),
+
+            "ema50":
+                float(latest["EMA50"]),
+
+            "macd":
+                float(latest["MACD"]),
+
+            "macd_signal":
+                float(
+                    latest["MACD_SIGNAL"]
+                ),
+
+            "atr":
+                float(latest["ATR"]),
+
+            "market_score":
+                market_score,
+
+            "news_score":
+                news_score,
+
+            "ml_probability":
+                ml_probability,
+
+            "ml_confidence":
+                ml_confidence,
+
+            "ai_signal":
+                ai_signal,
+
+            "decision":
+                decision,
+
+            "risk":
+                risk
+        })
+
+        return result
+
+    except Exception as error:
+
+        result["error"] = str(
+            error
+        )
+
+        return result
+
+
+# ============================================================
 # HEADER
-# ==========================================
+# ============================================================
 
-st.markdown(
-    '<div class="main-title">📊 CryptoAI Pro</div>',
-    unsafe_allow_html=True
+st.title(
+    "📊 CryptoAI Pro V3"
 )
 
-st.markdown(
-    '<div class="subtitle">'
-    'V2 Paper Trading Dashboard'
-    '</div>',
-    unsafe_allow_html=True
+st.caption(
+    "AI-Powered Crypto Analysis & "
+    "Risk-Managed Paper Trading"
+)
+
+st.info(
+    "Dashboard mode is monitoring/analysis only. "
+    "Trade execution remains controlled by main.py."
 )
 
 
-# ==========================================
+# ============================================================
 # SIDEBAR
-# ==========================================
+# ============================================================
 
 st.sidebar.title(
-    "⚙️ Dashboard"
+    "⚙️ CryptoAI Pro"
 )
 
 st.sidebar.write(
-    "CryptoAI Pro V2"
+    "V3 Development Dashboard"
 )
 
 st.sidebar.write(
-    "Paper Trading Mode"
+    "Trading Mode: PAPER"
+)
+
+st.sidebar.write(
+    "Live Trading: DISABLED"
 )
 
 st.sidebar.divider()
 
 if st.sidebar.button(
-    "🔄 Refresh Dashboard"
+    "🔄 Refresh Analysis",
+    use_container_width=True
 ):
 
     st.rerun()
 
-
 st.sidebar.divider()
 
+st.sidebar.caption(
+    "ML Training Universe"
+)
+
 st.sidebar.write(
-    "Database:"
+    "BTCUSDT"
 )
 
-st.sidebar.code(
-    DATABASE_PATH
+st.sidebar.write(
+    "ETHUSDT"
+)
+
+st.sidebar.write(
+    "LSKUSDT"
 )
 
 
-# ==========================================
-# LOAD DATA
-# ==========================================
+# ============================================================
+# PROJECT PROGRESS
+# ============================================================
+
+st.header(
+    "🚀 Project Development Progress"
+)
+
+st.subheader(
+    f"Overall Project Progress — "
+    f"{OVERALL_PROGRESS}%"
+)
+
+st.progress(
+    OVERALL_PROGRESS / 100
+)
+
+st.write("")
+
+progress_col1, progress_col2, progress_col3 = (
+    st.columns(3)
+)
+
+
+with progress_col1:
+
+    st.markdown(
+        "### V1 — Core Foundation"
+    )
+
+    st.metric(
+        "Progress",
+        f"{V1_PROGRESS}%"
+    )
+
+    st.progress(
+        V1_PROGRESS / 100
+    )
+
+    st.caption(
+        "API, market scanner, indicators, "
+        "strategy foundation and project structure."
+    )
+
+
+with progress_col2:
+
+    st.markdown(
+        "### V2 — Paper Trading"
+    )
+
+    st.metric(
+        "Progress",
+        f"{V2_PROGRESS}%"
+    )
+
+    st.progress(
+        V2_PROGRESS / 100
+    )
+
+    st.caption(
+        "Paper trader, SQLite database, "
+        "trade history and portfolio tracking."
+    )
+
+
+with progress_col3:
+
+    st.markdown(
+        "### V3 — AI / ML"
+    )
+
+    st.metric(
+        "Progress",
+        f"{V3_PROGRESS}%"
+    )
+
+    st.progress(
+        V3_PROGRESS / 100
+    )
+
+    st.caption(
+        "Random Forest, live inference, "
+        "hybrid decisions and risk management."
+    )
+
+
+st.divider()
+
+
+# ============================================================
+# LOAD DATABASE INFORMATION
+# ============================================================
 
 position = get_current_position()
 
 trade_history = get_trade_history()
 
-statistics = get_trade_statistics(
+statistics = get_statistics(
     trade_history
 )
 
 
-# ==========================================
+# ============================================================
 # SYSTEM STATUS
-# ==========================================
+# ============================================================
 
-st.subheader(
-    "🟢 System Status"
+st.header(
+    "🖥️ System Status"
 )
 
-status_col1, status_col2, status_col3 = st.columns(3)
+status1, status2, status3, status4 = (
+    st.columns(4)
+)
 
 
-with status_col1:
+with status1:
 
     st.metric(
         "Database",
-        "Connected"
+        "CONNECTED"
     )
 
 
-with status_col2:
-
-    if position:
-
-        st.metric(
-            "Position",
-            "OPEN"
-        )
-
-    else:
-
-        st.metric(
-            "Position",
-            "NO POSITION"
-        )
-
-
-with status_col3:
+with status2:
 
     st.metric(
         "Trading Mode",
@@ -357,21 +677,409 @@ with status_col3:
     )
 
 
-# ==========================================
-# OPEN POSITION
-# ==========================================
+with status3:
 
-st.subheader(
-    "📌 Current Position"
+    st.metric(
+        "ML Model",
+        "ACTIVE"
+    )
+
+
+with status4:
+
+    st.metric(
+        "Position",
+        (
+            "OPEN"
+            if position
+            else "NO POSITION"
+        )
+    )
+
+
+# ============================================================
+# LIVE ANALYSIS
+# ============================================================
+
+st.divider()
+
+st.header(
+    "📡 Live Market Analysis"
 )
+
+with st.spinner(
+    "Running CryptoAI Pro analysis..."
+):
+
+    analysis = run_live_analysis()
+
+
+if not analysis["success"]:
+
+    st.error(
+        "Live analysis failed: "
+        + analysis.get(
+            "error",
+            "Unknown error"
+        )
+    )
+
+else:
+
+    # ========================================================
+    # MARKET
+    # ========================================================
+
+    market1, market2, market3, market4 = (
+        st.columns(4)
+    )
+
+
+    with market1:
+
+        st.metric(
+            "Selected Market",
+            analysis["coin"]
+        )
+
+
+    with market2:
+
+        st.metric(
+            "Price",
+            f"${analysis['price']:,.6f}"
+        )
+
+
+    with market3:
+
+        st.metric(
+            "24h Change",
+            f"{analysis['change']:.2f}%"
+        )
+
+
+    with market4:
+
+        st.metric(
+            "24h Volume",
+            f"${analysis['volume']:,.0f}"
+        )
+
+
+    st.caption(
+        f"Using {analysis['candles']} "
+        f"one-minute candles."
+    )
+
+
+    # ========================================================
+    # TECHNICAL ANALYSIS
+    # ========================================================
+
+    st.subheader(
+        "📈 Technical Analysis"
+    )
+
+    tech1, tech2, tech3 = (
+        st.columns(3)
+    )
+
+
+    with tech1:
+
+        st.metric(
+            "RSI",
+            f"{analysis['rsi']:.2f}"
+        )
+
+        st.metric(
+            "ATR",
+            f"{analysis['atr']:.6f}"
+        )
+
+
+    with tech2:
+
+        st.metric(
+            "EMA 20",
+            f"{analysis['ema20']:.6f}"
+        )
+
+        st.metric(
+            "EMA 50",
+            f"{analysis['ema50']:.6f}"
+        )
+
+
+    with tech3:
+
+        st.metric(
+            "MACD",
+            f"{analysis['macd']:.6f}"
+        )
+
+        st.metric(
+            "MACD Signal",
+            f"{analysis['macd_signal']:.6f}"
+        )
+
+
+    # ========================================================
+    # AI
+    # ========================================================
+
+    st.subheader(
+        "🧠 AI Intelligence"
+    )
+
+    ai1, ai2, ai3, ai4 = (
+        st.columns(4)
+    )
+
+
+    with ai1:
+
+        if (
+            analysis["ml_confidence"]
+            is not None
+        ):
+
+            st.metric(
+                "AI Probability",
+                (
+                    f"{analysis['ml_confidence']:.2f}%"
+                )
+            )
+
+        else:
+
+            st.metric(
+                "AI Probability",
+                "N/A"
+            )
+
+
+    with ai2:
+
+        st.metric(
+            "AI Signal",
+            analysis["ai_signal"]
+        )
+
+
+    with ai3:
+
+        st.metric(
+            "Market Score",
+            analysis["market_score"]
+        )
+
+
+    with ai4:
+
+        st.metric(
+            "News Score",
+            analysis["news_score"]
+        )
+
+
+    st.caption(
+        "ML target: probability that the "
+        "future 5-candle return exceeds +0.20%."
+    )
+
+
+    # ========================================================
+    # HYBRID DECISION
+    # ========================================================
+
+    st.subheader(
+        "🎯 Hybrid Trading Decision"
+    )
+
+    decision = analysis[
+        "decision"
+    ]
+
+    decision1, decision2, decision3 = (
+        st.columns(3)
+    )
+
+
+    with decision1:
+
+        st.metric(
+            "Decision",
+            decision.get(
+                "decision",
+                "N/A"
+            )
+        )
+
+
+    with decision2:
+
+        st.metric(
+            "Decision Score",
+            decision.get(
+                "score",
+                0
+            )
+        )
+
+
+    with decision3:
+
+        st.metric(
+            "Confirmations",
+            decision.get(
+                "technical_confirmations",
+                0
+            )
+        )
+
+
+    reasons = decision.get(
+        "reason",
+        []
+    )
+
+    with st.expander(
+        "View Decision Reasons"
+    ):
+
+        if isinstance(
+            reasons,
+            list
+        ):
+
+            for reason in reasons:
+
+                st.write(
+                    "•",
+                    reason
+                )
+
+        else:
+
+            st.write(
+                reasons
+            )
+
+
+    # ========================================================
+    # RISK MANAGEMENT
+    # ========================================================
+
+    st.subheader(
+        "🛡️ Risk Management"
+    )
+
+    risk = analysis[
+        "risk"
+    ]
+
+    risk1, risk2, risk3, risk4 = (
+        st.columns(4)
+    )
+
+
+    with risk1:
+
+        st.metric(
+            "Position Size",
+            (
+                f"${risk.get('position_value', 0):.2f}"
+            )
+        )
+
+        st.metric(
+            "Quantity",
+            risk.get(
+                "quantity",
+                0
+            )
+        )
+
+
+    with risk2:
+
+        st.metric(
+            "Actual Risk",
+            (
+                f"{risk.get('actual_risk_percent', 0):.2f}%"
+            )
+        )
+
+        st.metric(
+            "Risk Amount",
+            (
+                f"${risk.get('actual_risk_amount', 0):.2f}"
+            )
+        )
+
+
+    with risk3:
+
+        st.metric(
+            "Stop Loss",
+            risk.get(
+                "stop_loss",
+                0
+            )
+        )
+
+        st.metric(
+            "Take Profit",
+            risk.get(
+                "take_profit",
+                0
+            )
+        )
+
+
+    with risk4:
+
+        st.metric(
+            "Risk / Reward",
+            (
+                f"{risk.get('risk_reward_ratio', 0)}:1"
+            )
+        )
+
+        st.metric(
+            "Risk Approval",
+            (
+                "APPROVED"
+                if risk.get(
+                    "approved",
+                    False
+                )
+                else "REJECTED"
+            )
+        )
+
+
+# ============================================================
+# CURRENT POSITION
+# ============================================================
+
+st.divider()
+
+st.header(
+    "📌 Current Paper Position"
+)
+
 
 if position:
 
-    position_col1, position_col2, position_col3, position_col4 = st.columns(
-        4
+    pos1, pos2, pos3, pos4 = (
+        st.columns(4)
     )
 
-    with position_col1:
+
+    with pos1:
 
         st.metric(
             "Coin",
@@ -381,29 +1089,39 @@ if position:
             )
         )
 
-    with position_col2:
+
+    with pos2:
 
         st.metric(
-            "Buy Price",
-            f"₹{float(position.get('price', 0)):,.6f}"
+            "Entry Price",
+            (
+                f"${float(position.get('price', 0)):,.6f}"
+            )
         )
 
-    with position_col3:
+
+    with pos3:
 
         st.metric(
             "Position Value",
-            f"₹{float(position.get('position_value', 0)):,.2f}"
+            (
+                f"${float(position.get('position_value', 0)):,.2f}"
+            )
         )
 
-    with position_col4:
+
+    with pos4:
 
         st.metric(
             "Stop Loss",
-            f"₹{float(position.get('stop_loss_price', 0)):,.6f}"
+            (
+                f"${float(position.get('stop_loss_price', 0)):,.6f}"
+            )
         )
 
+
     st.write(
-        "**Amount:**",
+        "**Quantity:**",
         position.get(
             "amount",
             0
@@ -418,124 +1136,105 @@ if position:
         )
     )
 
+
 else:
 
     st.info(
-        "No open paper-trading position."
+        "No paper position is currently open."
     )
 
 
-# ==========================================
-# TRADING STATISTICS
-# ==========================================
+# ============================================================
+# TRADING PERFORMANCE
+# ============================================================
 
-st.subheader(
-    "📈 Trading Statistics"
+st.divider()
+
+st.header(
+    "💼 Paper Trading Performance"
 )
 
-stat_col1, stat_col2, stat_col3, stat_col4 = st.columns(
-    4
+perf1, perf2, perf3, perf4 = (
+    st.columns(4)
 )
 
 
-with stat_col1:
+with perf1:
 
     st.metric(
-        "Total Trades",
-        statistics["total_trades"]
+        "Total Events",
+        statistics["total"]
     )
 
 
-with stat_col2:
+with perf2:
 
     st.metric(
-        "BUY Trades",
-        statistics["buy_trades"]
+        "Completed Trades",
+        statistics["sells"]
     )
 
 
-with stat_col3:
-
-    st.metric(
-        "SELL Trades",
-        statistics["sell_trades"]
-    )
-
-
-with stat_col4:
-
-    total_profit = statistics[
-        "total_profit"
-    ]
+with perf3:
 
     st.metric(
         "Total P/L",
-        f"₹{total_profit:,.2f}"
+        f"${statistics['profit']:,.2f}"
     )
 
 
-# ==========================================
-# WIN / LOSS STATISTICS
-# ==========================================
-
-win_col1, win_col2, win_col3 = st.columns(
-    3
-)
-
-
-with win_col1:
-
-    st.metric(
-        "Winning Trades",
-        statistics["winning_trades"]
-    )
-
-
-with win_col2:
-
-    st.metric(
-        "Losing Trades",
-        statistics["losing_trades"]
-    )
-
-
-with win_col3:
-
-    completed_trades = (
-        statistics["winning_trades"]
-        + statistics["losing_trades"]
-    )
-
-    if completed_trades > 0:
-
-        win_rate = (
-            statistics["winning_trades"]
-            / completed_trades
-        ) * 100
-
-    else:
-
-        win_rate = 0.0
+with perf4:
 
     st.metric(
         "Win Rate",
-        f"{win_rate:.2f}%"
+        f"{statistics['win_rate']:.2f}%"
     )
 
 
-# ==========================================
-# PROFIT / LOSS CHART
-# ==========================================
+perf5, perf6, perf7 = (
+    st.columns(3)
+)
+
+
+with perf5:
+
+    st.metric(
+        "BUY Events",
+        statistics["buys"]
+    )
+
+
+with perf6:
+
+    st.metric(
+        "Winning Trades",
+        statistics["wins"]
+    )
+
+
+with perf7:
+
+    st.metric(
+        "Losing Trades",
+        statistics["losses"]
+    )
+
+
+# ============================================================
+# P/L CHART
+# ============================================================
 
 st.subheader(
-    "📊 Profit / Loss"
+    "📊 Cumulative Profit / Loss"
 )
+
 
 if not trade_history.empty:
 
     sell_history = trade_history[
         trade_history["action"] == "SELL"
     ].copy()
+
 
     if not sell_history.empty:
 
@@ -547,20 +1246,29 @@ if not trade_history.empty:
             .fillna(0)
         )
 
-        sell_history["time"] = pd.to_datetime(
-            sell_history["time"],
-            errors="coerce"
+        sell_history["time"] = (
+            pd.to_datetime(
+                sell_history["time"],
+                errors="coerce"
+            )
         )
 
-        sell_history = sell_history.sort_values(
-            "time"
+        sell_history = (
+            sell_history
+            .sort_values(
+                "time"
+            )
         )
 
-        sell_history["cumulative_profit"] = (
-            sell_history["profit"].cumsum()
+        sell_history[
+            "cumulative_profit"
+        ] = (
+            sell_history[
+                "profit"
+            ].cumsum()
         )
 
-        chart_data = sell_history[
+        chart = sell_history[
             [
                 "time",
                 "cumulative_profit"
@@ -570,13 +1278,13 @@ if not trade_history.empty:
         )
 
         st.line_chart(
-            chart_data
+            chart
         )
 
     else:
 
         st.info(
-            "No completed SELL trades available for the chart."
+            "No completed SELL trades yet."
         )
 
 else:
@@ -586,56 +1294,19 @@ else:
     )
 
 
-# ==========================================
+# ============================================================
 # TRADE HISTORY
-# ==========================================
+# ============================================================
 
 st.subheader(
     "📜 Trade History"
 )
 
+
 if not trade_history.empty:
 
-    display_history = trade_history.copy()
-
-    if "price" in display_history.columns:
-
-        display_history["price"] = (
-            pd.to_numeric(
-                display_history["price"],
-                errors="coerce"
-            )
-        )
-
-    if "amount" in display_history.columns:
-
-        display_history["amount"] = (
-            pd.to_numeric(
-                display_history["amount"],
-                errors="coerce"
-            )
-        )
-
-    if "profit" in display_history.columns:
-
-        display_history["profit"] = (
-            pd.to_numeric(
-                display_history["profit"],
-                errors="coerce"
-            )
-        )
-
-    if "profit_percent" in display_history.columns:
-
-        display_history["profit_percent"] = (
-            pd.to_numeric(
-                display_history["profit_percent"],
-                errors="coerce"
-            )
-        )
-
     st.dataframe(
-        display_history,
+        trade_history,
         use_container_width=True,
         hide_index=True
     )
@@ -647,95 +1318,109 @@ else:
     )
 
 
-# ==========================================
-# LATEST TRADE
-# ==========================================
+# ============================================================
+# MODEL INFORMATION
+# ============================================================
 
-st.subheader(
-    "🕒 Latest Trade"
+st.divider()
+
+st.header(
+    "🤖 Machine Learning Model"
 )
 
-if not trade_history.empty:
+model1, model2, model3, model4 = (
+    st.columns(4)
+)
 
-    latest_trade = trade_history.iloc[0]
 
-    latest_col1, latest_col2, latest_col3 = st.columns(
-        3
-    )
+with model1:
 
-    with latest_col1:
-
-        st.write(
-            "**Action:**",
-            latest_trade.get(
-                "action",
-                "Unknown"
-            )
-        )
-
-        st.write(
-            "**Coin:**",
-            latest_trade.get(
-                "coin",
-                "Unknown"
-            )
-        )
-
-    with latest_col2:
-
-        st.write(
-            "**Price:**",
-            latest_trade.get(
-                "price",
-                0
-            )
-        )
-
-        st.write(
-            "**Amount:**",
-            latest_trade.get(
-                "amount",
-                0
-            )
-        )
-
-    with latest_col3:
-
-        st.write(
-            "**Profit:**",
-            latest_trade.get(
-                "profit",
-                0
-            )
-        )
-
-        st.write(
-            "**Time:**",
-            latest_trade.get(
-                "time",
-                "Unknown"
-            )
-        )
-
-else:
-
-    st.info(
-        "No latest trade available."
+    st.metric(
+        "Algorithm",
+        "Random Forest"
     )
 
 
-# ==========================================
+with model2:
+
+    st.metric(
+        "Features",
+        "19"
+    )
+
+
+with model3:
+
+    st.metric(
+        "Test ROC-AUC",
+        "0.8306"
+    )
+
+
+with model4:
+
+    st.metric(
+        "Training Markets",
+        "3"
+    )
+
+
+st.warning(
+    "The current ML model is experimental and is used "
+    "as an advisory signal for paper trading. Test "
+    "performance varies substantially between BTCUSDT, "
+    "ETHUSDT and LSKUSDT, so it should not be treated "
+    "as a production trading model."
+)
+
+
+# ============================================================
+# ARCHITECTURE
+# ============================================================
+
+st.divider()
+
+st.header(
+    "🏗️ System Pipeline"
+)
+
+st.code(
+    """
+CoinDCX Market Data
+        ↓
+Technical Indicators
+        ↓
+Market + News Analysis
+        ↓
+Random Forest AI
+        ↓
+Hybrid Decision Engine
+        ↓
+Risk Manager
+        ↓
+Paper Trader
+        ↓
+SQLite Database
+        ↓
+CryptoAI Pro Dashboard
+""",
+    language="text"
+)
+
+
+# ============================================================
 # FOOTER
-# ==========================================
+# ============================================================
 
 st.divider()
 
 st.caption(
-    "CryptoAI Pro V2 • Paper Trading • SQLite Database"
+    "CryptoAI Pro V3 • AI/ML • "
+    "Risk Management • Paper Trading"
 )
 
 st.caption(
-    "Last dashboard refresh: "
+    "Dashboard refreshed: "
     + datetime.now().strftime(
         "%Y-%m-%d %H:%M:%S"
     )
