@@ -160,7 +160,7 @@ Unseen chronological test dataset:
 - Accuracy: 78.32%
 - Precision: 34.78%
 - Recall: 76.88%
-- F1 Score: 47.100%
+- F1 Score: 47.90%
 - ROC-AUC: 0.8306
 
 Majority-class baseline accuracy:
